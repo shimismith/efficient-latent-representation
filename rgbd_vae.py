@@ -3,15 +3,14 @@ import torch.nn as nn
 import torch.nn.functional as tf
 import numpy as np
 
+from torch.utils.data import DataLoader, Dataset, Subset
+from scipy.io import loadmat
+import torchvision.transforms as transforms
+
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
-
-
-# TODO REMOVE AFTER TESTING!!!!! MAKES STUFF SLOW
-pyro.enable_validation(True)
-pyro.distributions.enable_validation(False)
 
 
 # Deep Residual Learning for Image Recognition: https://arxiv.org/pdf/1512.03385.pdf
@@ -125,13 +124,49 @@ class VAE(nn.Module):
       z_log_var = params[:, :, 1]
       pyro.sample("latent", dist.Normal(z_mu, torch.exp(z_log_var)).to_event(1))
 
+
+class NYU_DepthDataset(Dataset):
+    def __init__(self, mat_file):
+      mat = loadmat(mat_file)
+      images = torch.from_numpy(mat['images']).permute(3, 2, 0, 1)
+      depths = torch.from_numpy(mat['depths']).permute(2, 0, 1)
+
+      images_max = images.amax((2, 3), keepdim=True) 
+      images_min = images.amin((2, 3), keepdim=True) 
+      images = (images - images_min) / (images_max - images_min)
+
+      depths_max = depths.amax((1, 2), keepdim=True) 
+      depths_min = depths.amin((1, 2), keepdim=True) 
+      depths = (depths - depths_min) / (depths_max - depths_min)
+
+      self.rgbd = torch.cat((images, depths.unsqueeze(1)), dim=1)
+
+      self.std, self.mean = torch.std_mean(self.rgbd, (0, 2, 3))
+      self.rgbd = transforms.functional.normalize(self.rgbd, self.mean, self.std)
+
+    def __len__(self):
+        return self.rgbd.shape[0]
+
+    def __getitem__(self, idx):
+      return self.rgbd[idx]
+
+def setup_data_loaders(batch_size):
+  nyu = NYU_DepthDataset('drive/My Drive/nyu.mat')
+  nyu_train = Subset(nyu, range(0, 1159))
+  nyu_test = Subset(nyu, range(1159, len(nyu)))
+
+  train_dloader = DataLoader(dataset=nyu_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=torch.cuda.is_available())
+  test_dloader = DataLoader(dataset=nyu_test, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=torch.cuda.is_available())
+
+  return train_dloader, test_dloader
+
 # Trains for one epoch
 def train(svi, train_loader):
     epoch_loss = 0
-    for x, _ in train_loader:
-      if torch.cuda.is_availabe():
+    for x in train_loader:
+      if torch.cuda.is_available():
         x = x.cuda()
-        
+
         # compute ELBO gradient and accumulate loss
         epoch_loss += svi.step(x)
 
@@ -142,8 +177,8 @@ def train(svi, train_loader):
 def evaluate(svi, test_loader, use_cuda=False):
     test_loss = 0
     # compute the loss over the entire test set
-    for x, _ in test_loader:
-      if torch.cuda.is_availabe():
+    for x in test_loader:
+      if torch.cuda.is_available():
           x = x.cuda()
 
       # compute ELBO estimate and accumulate loss
@@ -151,7 +186,6 @@ def evaluate(svi, test_loader, use_cuda=False):
 
     total_epoch_loss_test = test_loss / len(test_loader.dataset)
     return total_epoch_loss_test
-
 
 pyro.clear_param_store()
 
@@ -163,7 +197,7 @@ svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
 
 NUM_EPOCHS = 50
 TEST_FREQUENCY = 5
-train_loader, test_loader = None, None  # TODO
+train_loader, test_loader = setup_data_loaders(batch_size=50)
 
 train_elbo = []
 test_elbo = []
