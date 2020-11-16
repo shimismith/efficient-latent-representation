@@ -22,7 +22,7 @@ from scipy.io import loadmat
 
 class NYU_DepthDataset(Dataset):
     def __init__(self, mat_file):
-      mat = loadmat(mat_file, verify_compressed_data_integrity=True)
+      mat = loadmat(mat_file)
       images = torch.from_numpy(mat['images']).permute(3, 2, 0, 1)
       depths = torch.from_numpy(mat['depths']).permute(2, 0, 1)
 
@@ -47,12 +47,15 @@ class NYU_DepthDataset(Dataset):
 
 # Note : to be filled
 batch_size = 50
-kwargs = {'num_workers': 1, 'pin_memory': True}
-nyu =   NYU_DepthDataset('./nyu.mat')
-trainset = Subset(nyu, range(0, 1159))
-testset =  Subset(nyu, range(1159, len(nyu)))
-train_loader = torch.utils.data.DataLoader(dataset=trainset, batch_size=batch_size, shuffle=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(dataset=testset, batch_size=batch_size, shuffle=True, **kwargs)
+# kwargs = {'num_workers': 1, 'pin_memory': True}
+nyu = NYU_DepthDataset('drive/My Drive/Colab Notebooks/nyu.mat')
+nyu_train = Subset(nyu, range(0, 1159))
+nyu_test = Subset(nyu, range(1159, len(nyu)))
+trainloader = DataLoader(dataset=nyu_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=torch.cuda.is_available())
+testloader = DataLoader(dataset=nyu_test, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=torch.cuda.is_available())
+
+from google.colab import drive
+drive.mount('/content/drive')
 
 # initialize random seeds; select gpu device if available
 torch.manual_seed(1)
@@ -64,14 +67,14 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 def display_images(in_, out, n=1, label=None, count=False):
     for N in range(n):
         if in_ is not None:
-            in_pic = in_.data.cpu().view(-1, 28, 28)
+            in_pic = in_.data.cpu().view(-1, 216, 216)
             plt.figure(figsize=(20, 4))
             plt.suptitle(label + ' – reconstructed images', color='w', fontsize=20)
             for i in range(4):
                 plt.subplot(1,4,i+1)
                 plt.imshow(in_pic[i+4*N])
                 plt.axis('off')
-        out_pic = out.data.cpu().view(-1, 28, 28)
+        out_pic = out.data.cpu().view(-1, 216, 216)
         plt.figure(figsize=(20, 6))
         for i in range(4):  
             plt.subplot(1,4,i+1)
@@ -111,7 +114,7 @@ class VAE(nn.Module):
 model = VAE().to(device)
 
 # Setting the optimiser
-optimizer = torch.optim.Adam(model.parameters(),lr=0.01) # learning rate can be modified accordingly
+optimizer = torch.optim.Adam(model.parameters(),lr=0.001) # learning rate can be modified accordingly
 
 # define the loss function -> using binary_cross_entropy loss with KL divergence
 def loss_function(x_hat, x, mu, logvar):  # where x = instance of training; x_hat, mu, logvar = model(x); same concept can be applied for testing phase
@@ -121,14 +124,14 @@ def loss_function(x_hat, x, mu, logvar):  # where x = instance of training; x_ha
 
 # Training and testing the VAE
 
-epochs = 20
-codes = dict(mu1=list(), var1=list(), y1=list())
+epochs = 20 # set higher epoch values - around 300 to 500
+codes = dict(mu1=list(), var1=list()) #, y1=list())
 for epoch in range(0, epochs + 1):
     # Training
     if epoch > 0:  # test untrained net first
         model.train()
         train_loss = 0
-        for x in train_loader:
+        for x in trainloader:
             x = x.to(device)
             x_hat, mu, logvar = model(x)
             loss = loss_function(x_hat, x, mu, logvar)
@@ -144,17 +147,17 @@ for epoch in range(0, epochs + 1):
     with torch.no_grad():
         model.eval()
         test_loss = 0
-        for x, y in test_loader:
+        for x in testloader:
             x = x.to(device)
             x_hat, mu, logvar = model(x)
             test_loss += loss_function(x_hat, x, mu, logvar).item()
             means.append(mu.detach())
             logvars.append(logvar.detach())
-            labels.append(y.detach())
+            #labels.append(y.detach())
      
     codes['mu1'].append(torch.cat(means))
     codes['var1'].append(torch.cat(logvars))
-    codes['y1'].append(torch.cat(labels))
-    test_loss /= len(test_loader.dataset)
+    #codes['y1'].append(torch.cat(labels))
+    test_loss /= len(testloader.dataset)
     print(f'====> Test set loss: {test_loss:.4f}')
     display_images(x, x_hat, 1, f'Epoch {epoch}')
