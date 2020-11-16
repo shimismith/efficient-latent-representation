@@ -115,7 +115,7 @@ optimizer = torch.optim.Adam(model.parameters(),lr=0.01) # learning rate can be 
 
 # define the loss function -> using binary_cross_entropy loss with KL divergence
 def loss_function(x_hat, x, mu, logvar):  # where x = instance of training; x_hat, mu, logvar = model(x); same concept can be applied for testing phase
-    BCE = nn.functional.binary_cross_entropy(x_hat, x.view(-1, 784), reduction='sum')
+    BCE = nn.functional.binary_cross_entropy(x_hat, x.view(-1, 46656), reduction='sum')
     KLDiv = 0.5 * torch.sum(logvar.exp() - logvar - 1 + mu.pow(2))
     return BCE + KLDiv
 
@@ -128,7 +128,7 @@ for epoch in range(0, epochs + 1):
     if epoch > 0:  # test untrained net first
         model.train()
         train_loss = 0
-        for x, _ in train_loader:
+        for x in train_loader:
             x = x.to(device)
             x_hat, mu, logvar = model(x)
             loss = loss_function(x_hat, x, mu, logvar)
