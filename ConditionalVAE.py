@@ -32,7 +32,7 @@ class Encoder(nn.Module):
         
     def forward(self, x):
         x = nn.relu(self.fc1(x.view(-1, 46656)))
-        mu = self.fc21(x)
+        mu = self.fc21(x) 
         logvar = self.fc22(x)
         return mu, logvar
 
