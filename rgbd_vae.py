@@ -12,6 +12,7 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 
+pyro.set_rng_seed(101)
 
 # Deep Residual Learning for Image Recognition: https://arxiv.org/pdf/1512.03385.pdf
 class ResBlock(nn.Module):
@@ -112,8 +113,8 @@ class VAE(nn.Module):
       z_var = x.new_ones(torch.Size((x.shape[0], self.z_dim)))
 
       z = pyro.sample("latent", dist.Normal(z_mu, z_var).to_event(1))
-      x = self.decoder(z)
-      pyro.sample("obs", dist.Bernoulli(x).to_event(3), obs=x)
+      x_means = self.decoder(z)
+      pyro.sample("obs", dist.Bernoulli(x_means).to_event(3), obs=x)
 
   # approximate posterior q(z|x)
   def guide(self, x):
@@ -124,6 +125,13 @@ class VAE(nn.Module):
       z_log_var = params[:, :, 1]
       pyro.sample("latent", dist.Normal(z_mu, torch.exp(z_log_var)).to_event(1))
 
+  def reconstruct(self, x):
+    params = self.encoder(x)
+    z_mu = params[:, :, 0]
+    z_log_var = params[:, :, 1]
+    z = dist.Normal(z_mu, torch.exp(z_log_var)).sample()
+    x = self.decoder(z)
+    return x
 
 class NYU_DepthDataset(Dataset):
     def __init__(self, mat_file):
@@ -188,6 +196,8 @@ def evaluate(svi, test_loader, use_cuda=False):
     return total_epoch_loss_test
 
 pyro.clear_param_store()
+# pyro.enable_validation(True)
+# pyro.distributions.enable_validation(False)
 
 vae = VAE()
 optimizer = Adam({"lr": 1.0e-3})
@@ -195,9 +205,10 @@ optimizer = Adam({"lr": 1.0e-3})
 # num_particles defaults to 1. Can increase to get ELBO over multiple samples of z~q(z|x).
 svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
 
-NUM_EPOCHS = 50
+NUM_EPOCHS = 100
 TEST_FREQUENCY = 5
-train_loader, test_loader = setup_data_loaders(batch_size=50)
+BATCH_SIZE = 50
+train_loader, test_loader = setup_data_loaders(batch_size=BATCH_SIZE)
 
 train_elbo = []
 test_elbo = []
@@ -207,14 +218,11 @@ vae.train()
 for epoch in range(NUM_EPOCHS):
     total_epoch_loss_train = train(svi, train_loader)
     train_elbo.append(-total_epoch_loss_train)
-    print("[epoch %03d]  average training loss: %.4f" % (epoch, total_epoch_loss_train))
+    print("[epoch %d]  average training loss: %.4f" % (epoch, total_epoch_loss_train))
 
     if epoch % TEST_FREQUENCY == 0:
         vae.eval()
         total_epoch_loss_test = evaluate(svi, test_loader)
         vae.train()
         test_elbo.append(-total_epoch_loss_test)
-        print("[epoch %03d] average test loss: %.4f" % (epoch, total_epoch_loss_test))
-
-
-# TODO can graph train_elbo and test_elbo
+        print("[epoch %d] average test loss: %.4f" % (epoch, total_epoch_loss_test))
