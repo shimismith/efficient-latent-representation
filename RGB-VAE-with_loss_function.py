@@ -102,7 +102,7 @@ class VAE(nn.Module):
             return mu
 
     def forward(self, x):
-        mu_logvar = self.encoder(x.view(-1, 784)).view(-1, 2, d)
+        mu_logvar = self.encoder(x.view(-1, 46656)).view(-1, 2, d)
         mu = mu_logvar[:, 0, :]
         logvar = mu_logvar[:, 1, :]  # calculating the value of 'mu' and 'logvar' from encoder
         z = self.reparam(mu, logvar) # finding z by reparameterization
