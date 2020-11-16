@@ -48,7 +48,7 @@ class NYU_DepthDataset(Dataset):
 # Note : to be filled
 batch_size = 50
 kwargs = {'num_workers': 1, 'pin_memory': True}
-nyu =   NYU_DepthDataset('/nyu.mat')
+nyu =   NYU_DepthDataset('./nyu.mat')
 trainset = Subset(nyu, range(0, 1159))
 testset =  Subset(nyu, range(1159, len(nyu)))
 train_loader = torch.utils.data.DataLoader(dataset=trainset, batch_size=batch_size, shuffle=True, **kwargs)
