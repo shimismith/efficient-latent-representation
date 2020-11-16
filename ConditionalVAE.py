@@ -15,11 +15,13 @@ import torch.nn.functional as tf
 import numpy as np
 
 # ConditionalVAE = Encoder + Conditioner + Decoder
+# Assumption -> Dataset = NYU data -> "nyu.mat" file as input
 # img size = 216x216 = 46656 = input_dim
-# Note : fully connected layers used in encoder, conditioner and decode
+# Note : fully connected layers used in encoder, conditioner and decoder
+# This file can be called in the "main.py" (if createdd), to integrate with dataloader, train/test code to evaluate the model performance
 latent_dim = 250
 hidden_dim = 400
-num_classes = 2 # consider num_classes = 2, 1 for indoor scenes and the other for outdoor scenes
+num_classes = 2 # consider num_classes = 2, 1 for indoor scenes and the other for outdoor scenes [Extra classes can be added -> kitchen, cafe, bathroom, etc images]
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -129,10 +131,11 @@ class CVAE(nn.Module):
 model = CVAE()
 
 # Setting the optimiser
-optimizer = torch.optim.Adam(model.parameters(),lr=0.01) # learning rate can be modified accordingly
+optimizer = torch.optim.Adam(model.parameters(),lr=0.001) # learning rate can be modified accordingly
 
+# Note, loss function variation in CVAE to be re-examined
 # define the loss function -> using binary_cross_entropy loss with KL divergence
 def loss_function(x_hat, x, mu, logvar):  # where x = instance of training; x_hat, mu, logvar = model(x); same concept can be applied for testing phase
-    BCE = nn.functional.binary_cross_entropy(x_hat, x.view(-1, 784), reduction='sum')
+    BCE = nn.functional.binary_cross_entropy(x_hat, x.view(-1, 46656), reduction='sum')
     KLDiv = 0.5 * torch.sum(logvar.exp() - logvar - 1 + mu.pow(2))
     return BCE + KLDiv
