@@ -2,15 +2,17 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as tf
 import numpy as np
-
-from torch.utils.data import DataLoader, Dataset, Subset
-from scipy.io import loadmat
-import torchvision.transforms as transforms
+import matplotlib.pyplot as plt
 
 import pyro
 import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
+
+from torch.utils.data import DataLoader, Dataset, Subset
+from scipy.io import loadmat
+import torchvision.transforms as transforms
+
 
 pyro.set_rng_seed(101)
 
@@ -19,35 +21,36 @@ class ResBlock(nn.Module):
   def __init__(self, in_channels, out_channels):
     super().__init__()
 
-    self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.InstanceNorm2d(out_channels), nn.ReLU(),
-                              nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.InstanceNorm2d(out_channels))
+    self.conv = nn.Sequential(nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.BatchNorm2d(out_channels), nn.Softplus(),
+                              nn.Conv2d(in_channels, out_channels, 3, padding=1), nn.BatchNorm2d(out_channels))
     
     self.linear = None
     if in_channels != out_channels:
-      self.linear = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, padding=0), nn.InstanceNorm2d(out_channels))
+      self.linear = nn.Sequential(nn.Conv2d(in_channels, out_channels, 1, padding=0), nn.BatchNorm2d(out_channels))
 
   def forward(self, x):
     if self.linear:
       x = self.linear(x)
-    return tf.relu(self.conv(x) + x)
+    return tf.softplus(self.conv(x) + x)
+
 
 # Input is 216*216
 class Encoder(nn.Module):
-  def __init__(self):
+  def __init__(self, z_dim):
     super().__init__()
     
     depths = [64, 76, 88, 100, 128, 200]
-    self.conv1 = nn.Sequential(nn.Conv2d(4, 64, 3, padding=1), nn.InstanceNorm2d(64), nn.LeakyReLU())
+    self.conv1 = nn.Sequential(nn.Conv2d(4, 64, 3, padding=1), nn.BatchNorm2d(64), nn.Softplus())
 
     convs = []
     for i in range(0, len(depths)-1):
-      convs.append(nn.Sequential(nn.Conv2d(depths[i], depths[i+1], 3, padding=1, stride=2), nn.InstanceNorm2d(depths[i+1]), nn.ReLU()))
+      convs.append(nn.Sequential(nn.Conv2d(depths[i], depths[i+1], 3, padding=1, stride=2), nn.BatchNorm2d(depths[i+1]), nn.Softplus()))
 
     self.convs = nn.Sequential(*convs)
     self.res_blocks = nn.Sequential(ResBlock(depths[-1], depths[-1]), ResBlock(depths[-1], depths[-1]))
 
-    self.conv2 = nn.Sequential(nn.Conv2d(200, 250, 3, padding=1, stride=2), nn.InstanceNorm2d(250), nn.ReLU())
-    self.conv3 = nn.Sequential(nn.Conv2d(250, 300, 3, padding=1, stride=2), nn.InstanceNorm2d(300), nn.ReLU())
+    self.conv2 = nn.Sequential(nn.Conv2d(200, 250, 3, padding=1, stride=2), nn.BatchNorm2d(250), nn.Softplus())
+    self.conv3 = nn.Sequential(nn.Conv2d(250, z_dim, 3, padding=1, stride=2), nn.BatchNorm2d(z_dim), nn.Softplus())
     self.fc = nn.Linear(4, 2)
 
   def forward(self, x):
@@ -57,30 +60,30 @@ class Encoder(nn.Module):
     conv2_out = self.conv2(res_out)
     conv3_out = self.conv3(conv2_out)  
 
-    final = conv3_out.flatten(2)
-    final = self.fc(final)  # mu, log(var)
+    final = self.fc(conv3_out.flatten(2))  # mu, log(var)
     
     return final
 
+
 class Decoder(nn.Module):
-  def __init__(self):
+  def __init__(self, z_dim):
     super().__init__()
 
-    self.conv1 = nn.Sequential(nn.ConvTranspose2d(300, 250, 4), nn.InstanceNorm2d(250), nn.ReLU())
-    self.conv2 = nn.Sequential(nn.ConvTranspose2d(250, 200, 3), nn.InstanceNorm2d(200), nn.ReLU())
+    self.conv1 = nn.Sequential(nn.ConvTranspose2d(z_dim, 250, 4), nn.BatchNorm2d(250), nn.Softplus())
+    self.conv2 = nn.Sequential(nn.ConvTranspose2d(250, 200, 3), nn.BatchNorm2d(200), nn.Softplus())
 
     depths = [200, 128, 100, 88, 76, 64]
     self.res_blocks = nn.Sequential(ResBlock(depths[0], depths[0]), ResBlock(depths[0], depths[0]))
 
     convs = []
     for i in range(0, 2):
-      convs.append(nn.Sequential(nn.ConvTranspose2d(depths[i], depths[i+1], 3, stride=2), nn.InstanceNorm2d(depths[i+1]), nn.ReLU()))
+      convs.append(nn.Sequential(nn.ConvTranspose2d(depths[i], depths[i+1], 3, stride=2), nn.BatchNorm2d(depths[i+1]), nn.Softplus()))
 
     for i in range(2, len(depths)-1):
-      convs.append(nn.Sequential(nn.ConvTranspose2d(depths[i], depths[i+1], 2, stride=2), nn.InstanceNorm2d(depths[i+1]), nn.ReLU()))
+      convs.append(nn.Sequential(nn.ConvTranspose2d(depths[i], depths[i+1], 2, stride=2), nn.BatchNorm2d(depths[i+1]), nn.Softplus()))
 
     self.convs = nn.Sequential(*convs)
-    self.conv3 = nn.Sequential(nn.Conv2d(64, 4, 3, padding=1), nn.InstanceNorm2d(4), nn.LeakyReLU())
+    self.conv3 = nn.Sequential(nn.Conv2d(64, 4, 3, padding=1), nn.BatchNorm2d(4), nn.Softplus())
 
   def forward(self, z):
     z = z.view(z.shape[0], z.shape[1], 1, 1)
@@ -93,17 +96,17 @@ class Decoder(nn.Module):
 
     return final
 
+
 class VAE(nn.Module):
-  def __init__(self):
+  def __init__(self, z_dim):
     super().__init__()
-    self.encoder = Encoder()
-    self.decoder = Decoder()
+    self.z_dim = z_dim
+    self.encoder = Encoder(self.z_dim)
+    self.decoder = Decoder(self.z_dim)
 
     if torch.cuda.is_available():
       self.cuda()
-
-    self.z_dim = 300
-  
+        
   # p(x, z) = p(x|z)p(z)
   def model(self, x):
     pyro.module("decoder", self.decoder)
@@ -133,6 +136,7 @@ class VAE(nn.Module):
     x = self.decoder(z)
     return x
 
+
 class NYU_DepthDataset(Dataset):
     def __init__(self, mat_file):
       mat = loadmat(mat_file)
@@ -158,6 +162,7 @@ class NYU_DepthDataset(Dataset):
     def __getitem__(self, idx):
       return self.rgbd[idx]
 
+
 def setup_data_loaders(batch_size):
   nyu = NYU_DepthDataset('drive/My Drive/nyu.mat')
   nyu_train = Subset(nyu, range(0, 1159))
@@ -167,6 +172,7 @@ def setup_data_loaders(batch_size):
   test_dloader = DataLoader(dataset=nyu_test, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=torch.cuda.is_available())
 
   return train_dloader, test_dloader
+
 
 # Trains for one epoch
 def train(svi, train_loader):
@@ -182,6 +188,7 @@ def train(svi, train_loader):
     total_epoch_loss_train = epoch_loss / len(train_loader.dataset)
     return total_epoch_loss_train
 
+
 def evaluate(svi, test_loader, use_cuda=False):
     test_loss = 0
     # compute the loss over the entire test set
@@ -195,17 +202,18 @@ def evaluate(svi, test_loader, use_cuda=False):
     total_epoch_loss_test = test_loss / len(test_loader.dataset)
     return total_epoch_loss_test
 
+
 pyro.clear_param_store()
 # pyro.enable_validation(True)
 # pyro.distributions.enable_validation(False)
 
-vae = VAE()
-optimizer = Adam({"lr": 1.0e-3})
+vae = VAE(400)
+optimizer = Adam({"lr": 1.0e-5})
 
 # num_particles defaults to 1. Can increase to get ELBO over multiple samples of z~q(z|x).
 svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
 
-NUM_EPOCHS = 100
+NUM_EPOCHS = 500
 TEST_FREQUENCY = 5
 BATCH_SIZE = 50
 train_loader, test_loader = setup_data_loaders(batch_size=BATCH_SIZE)
@@ -214,6 +222,8 @@ train_elbo = []
 test_elbo = []
 
 vae.train()
+
+best = float('inf')
 
 for epoch in range(NUM_EPOCHS):
     total_epoch_loss_train = train(svi, train_loader)
@@ -226,3 +236,27 @@ for epoch in range(NUM_EPOCHS):
         vae.train()
         test_elbo.append(-total_epoch_loss_test)
         print("[epoch %d] average test loss: %.4f" % (epoch, total_epoch_loss_test))
+
+        # Save stuff
+        if (total_epoch_loss_test < best):
+          print('SAVING EPOCH', epoch)
+          best = total_epoch_loss_test
+          pyro.get_param_store().save('drive/My Drive/pyro_weights.save')
+          optimizer.save('drive/My Drive/optimizer_state.save')
+          checkpoint = {'model_state_dict': vae.state_dict()}
+          torch.save(checkpoint, 'drive/My Drive/torch_weights.save')
+
+        i = 0
+        fig = plt.figure()
+        fig.add_subplot(2, 2, 1)
+        plt.imshow(test_loader.dataset[i][:3].permute(1, 2, 0)*test_loader.dataset.dataset.std[:3] + test_loader.dataset.dataset.mean[:3])
+        fig.add_subplot(2, 2, 2)
+        plt.imshow(test_loader.dataset[i][3]*test_loader.dataset.dataset.std[3] + test_loader.dataset.dataset.mean[3])
+
+        test_input = test_loader.dataset[i].unsqueeze(0).cuda()
+        reconstructed = vae.reconstruct(test_input).cpu().detach()[0]
+        fig.add_subplot(2, 2, 3)
+        plt.imshow(reconstructed[:3].permute(1, 2, 0)*test_loader.dataset.dataset.std[:3] + test_loader.dataset.dataset.mean[:3])
+        fig.add_subplot(2, 2, 4)
+        plt.imshow(reconstructed[3]*test_loader.dataset.dataset.std[3] + test_loader.dataset.dataset.mean[3])
+        plt.show()
