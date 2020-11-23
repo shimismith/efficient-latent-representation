@@ -9,11 +9,7 @@ import pyro.distributions as dist
 from pyro.infer import SVI, Trace_ELBO
 from pyro.optim import Adam
 
-from torch.utils.data import DataLoader, Dataset, Subset
-from scipy.io import loadmat
-import torchvision.transforms as transforms
-import torchvision.datasets as datasets
-
+from nyu_dataloader import setup_data_loaders
 
 pyro.set_rng_seed(101)
 
@@ -21,12 +17,12 @@ pyro.set_rng_seed(101)
 class Encoder(nn.Module):
   def __init__(self, z_dim):
     super().__init__()
-    
+
     depths = [4, 32, 64, 128, 256, 512]
     convs = []
     for i in range(0, len(depths)-1):
       convs.append(nn.Sequential(nn.Conv2d(depths[i], depths[i+1], 4, padding=1, stride=2), nn.BatchNorm2d(depths[i+1]), nn.LeakyReLU()))
-    
+
     self.convs = nn.Sequential(*convs)
 
     self.fc1 = nn.Linear(depths[-1]*4**2, z_dim)
@@ -38,7 +34,7 @@ class Encoder(nn.Module):
 
     mu = self.fc1(conv_out)
     log_var = self.fc2(conv_out)
-    
+
     return mu, log_var
 
 
@@ -73,7 +69,7 @@ class VAE(nn.Module):
 
     if torch.cuda.is_available():
       self.cuda()
-        
+
   # p(x, z) = p(x|z)p(z)
   def model(self, x):
     pyro.module("decoder", self.decoder)
@@ -98,44 +94,6 @@ class VAE(nn.Module):
     z = dist.Normal(z_mu, torch.exp(z_log_var)).sample()
     x = self.decoder(z)
     return x
-
-
-class NYU_DepthDataset(Dataset):
-    def __init__(self, mat_file, transform=None):
-      mat = loadmat(mat_file)
-      images = torch.from_numpy(mat['images']).permute(3, 2, 0, 1)
-      depths = torch.from_numpy(mat['depths']).permute(2, 0, 1)
-
-      images_max = images.amax((2, 3), keepdim=True) 
-      images_min = images.amin((2, 3), keepdim=True) 
-      images = (images - images_min) / (images_max - images_min)
-
-      depths_max = depths.amax((1, 2), keepdim=True) 
-      depths_min = depths.amin((1, 2), keepdim=True) 
-      depths = (depths - depths_min) / (depths_max - depths_min)
-
-      self.rgbd = torch.cat((images, depths.unsqueeze(1)), dim=1)
-
-      if transform:
-        self.rgbd = transform(self.rgbd)
-
-    def __len__(self):
-        return self.rgbd.shape[0]
-
-    def __getitem__(self, idx):
-      return self.rgbd[idx]
-
-
-def setup_data_loaders(batch_size):
-  transform = transforms.Compose([transforms.Resize((128, 128)), transforms.Normalize((0.5, 0.5, 0.5, 0.5), (0.5, 0.5, 0.5, 0.5))])
-  nyu = NYU_DepthDataset('nyu128.mat', transform=transform)
-  nyu_train = Subset(nyu, range(0, 1159))
-  nyu_test = Subset(nyu, range(1159, len(nyu)))
-
-  train_dloader = DataLoader(dataset=nyu_train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=torch.cuda.is_available())
-  test_dloader = DataLoader(dataset=nyu_test, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=torch.cuda.is_available())
-
-  return train_dloader, test_dloader
 
 
 # Trains for one epoch
@@ -172,14 +130,12 @@ pyro.clear_param_store()
 # pyro.distributions.enable_validation(False)
 
 vae = VAE(400)
-optimizer = Adam({"lr": 0.0005})
+optimizer = Adam({"lr": 1e-4})
 
 # num_particles defaults to 1. Can increase to get ELBO over multiple samples of z~q(z|x).
 svi = SVI(vae.model, vae.guide, optimizer, loss=Trace_ELBO())
 
-# pyro.get_param_store().load('pyro_weights.save')
-# pyro.module("decoder", vae.decoder, update_module_params=True)
-# pyro.module("encoder", vae.encoder, update_module_params=True)
+# vae.load_state_dict(torch.load('torch_weights.save'))
 # optimizer.load('optimizer_state.save')
 
 NUM_EPOCHS = 300
@@ -209,16 +165,16 @@ for epoch in range(NUM_EPOCHS):
         test_elbo.append(-total_epoch_loss_test)
         print("[epoch %d] average test loss: %.4f" % (epoch, total_epoch_loss_test))
 
+        if total_epoch_loss_test < 0:  # numerical instability occured
+          print('Negative loss occurred!!!', total_epoch_loss_test)
+          break
+
         # Save stuff
         if total_epoch_loss_test < best:
           print('SAVING EPOCH', epoch)
           best = total_epoch_loss_test
-          optimizer.save('pvae_optimizer_state.save')
-          torch.save(vae.state_dict(), 'pvae_torch_weights.save')
-
-        if total_epoch_loss_test < 0:  # numerical instability occured
-          print('Negative loss occurred!!!', total_epoch_loss_test)
-          break
+          optimizer.save('rgbd_pvae_optimizer_state.save')
+          torch.save(vae.state_dict(), 'rgbd_pvae_torch_weights.save')
 
         i = 0
         axs[0, 0].imshow(test_loader.dataset[i][:3].permute(1, 2, 0))
