@@ -84,7 +84,7 @@ def display_images(in_, out, n=1, label=None, count=False):
 
 # creating basic VAE model for image reconstruction; depth encoding - pending
 
-d = 10 # data points can be varied accordingly
+d = 100 # data points can be varied accordingly
 class VAE(nn.Module):
     def __init__(self):
         super().__init__()
@@ -124,7 +124,7 @@ def loss_function(x_hat, x, mu, logvar):  # where x = instance of training; x_ha
 
 # Training and testing the VAE
 
-epochs = 20 # set higher epoch values - around 300 to 500
+epochs = 1000 # set higher epoch values - around 300 to 500
 codes = dict(mu1=list(), var1=list()) #, y1=list())
 for epoch in range(0, epochs + 1):
     # Training
