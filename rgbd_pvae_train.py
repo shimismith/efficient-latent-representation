@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 from torch.distributions import Normal
 from nyu_dataloader import setup_data_loaders
 
-from nyu_dataloader_mat import setup_data_loaders
-# from nyu_dataloader import setup_data_loaders
+# from nyu_dataloader_mat import setup_data_loaders
+from nyu_dataloader import setup_data_loaders
 from torch.utils.tensorboard import SummaryWriter
 
 # torch.cuda.set_device(1)
@@ -35,12 +35,13 @@ class Encoder(nn.Module):
 
 
 class Decoder(nn.Module):
-  def __init__(self, x_dim, z_dim, filters=32):
+  def __init__(self, x_dim, z_dim, filters=32, std=1):
     super().__init__()
 
     depths = [filters*8, filters*8, filters*4, filters*2, filters, x_dim]
 
     self.fc = nn.Linear(z_dim, depths[0]*4**2)
+    self.std = std
 
     convs = []
     for i in range(0, len(depths)-2):
@@ -55,7 +56,7 @@ class Decoder(nn.Module):
     conv_out = self.convs(fc_out)
     final = torch.tanh(conv_out)
 
-    return final
+    return Normal(loc=final, scale=torch.ones_like(final) * self.std)
 
 
 class VAE(nn.Module):
@@ -84,37 +85,82 @@ def neg_elbo(reconstructed, x, latent):
     log_likelihood_reconstructed = reconstructed.log_prob(x).mean(dim=0).sum()
 
     # -KL for gaussian case: 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
-    # kl = kl_divergence(latent, Normal(torch.zeros_like(latent.loc), torch.ones_like(latent.scale))).sum(1).mean()
     kl = torch.mean(-0.5 * torch.sum(1 + torch.log(latent.variance) - latent.mean.pow(2) - latent.variance, dim=1))
 
     elbo = log_likelihood_reconstructed - kl
-    return -elbo
+    return -elbo, kl, log_likelihood_reconstructed
 
 
 # Trains for one epoch
 def train(vae, train_loader, optimizer):
     vae.train()
     epoch_loss = 0
+    epoch_kl = 0
+    epoch_likelihood = 0
+    mse = 0
+    total = 0
     for x in train_loader:
       if torch.cuda.is_available():
         x = x.cuda()
 
       optimizer.zero_grad()
       output = vae(x)
-      loss = neg_elbo(*output)
+      loss, kl, likelihood = neg_elbo(*output)
       epoch_loss += loss.item()
+      epoch_kl += kl.item()
+      likelihood += likelihood.item()
+
+      mean = vae.reconstruct(x)
+      mse += F.mse_loss(mean, x, reduction='sum').item()
+      total += x.size(0)
 
       loss.backward()
       optimizer.step()
 
     # return epoch loss
-    total_epoch_loss_train = epoch_loss / len(train_loader)
-    return total_epoch_loss_train
+    epoch_loss = epoch_loss / len(train_loader)
+    epoch_kl = epoch_kl / len(train_loader)
+    epoch_likelihood = epoch_likelihood / len(train_loader)
+    mse = mse / total
+
+    return epoch_loss, epoch_kl, epoch_likelihood, mse
+
+
+def evaluate(vae, test_loader):
+    vae.eval()
+    epoch_loss = 0
+    epoch_kl = 0
+    epoch_likelihood = 0
+    mse = 0
+    total = 0
+    with torch.no_grad():
+        for x in test_loader:
+          if torch.cuda.is_available():
+            x = x.cuda()
+
+          output = vae(x)
+          loss, kl, likelihood = neg_elbo(*output)
+          epoch_loss += loss.item()
+          epoch_kl += kl.item()
+          likelihood += likelihood.item()
+
+          mean = vae.reconstruct(x)
+          mse += F.mse_loss(mean, x, reduction='sum').item()
+          total += x.size(0)
+
+    # return epoch loss
+    epoch_loss = epoch_loss / len(train_loader)
+    epoch_kl = epoch_kl / len(train_loader)
+    epoch_likelihood = epoch_likelihood / len(train_loader)
+    mse = mse / total
+
+    return epoch_loss, epoch_kl, epoch_likelihood, mse
 
 
 def mse(vae, test_loader):
     vae.eval()
     mse = 0
+    total = 0
     with torch.no_grad():
       # compute the loss over the entire test set
       for x in test_loader:
@@ -122,9 +168,10 @@ def mse(vae, test_loader):
           x = x.cuda()
 
         mean = vae.reconstruct(x)
-        mse += F.mse_loss(mean, x).item()
+        mse += F.mse_loss(mean, x, reduction='sum').item()
+        total += x.size(0)
 
-    mse = mse / len(test_loader)
+    mse = mse / total
     return mse
 
 
@@ -144,19 +191,27 @@ best = float('inf')
 fig, axs = plt.subplots(2, 2)
 
 for epoch in range(1, NUM_EPOCHS+1):
-    total_epoch_loss_train = train(vae, train_loader, optimizer)
-    writer.add_scalar('Loss/train', -total_epoch_loss_train, epoch)
-    writer.add_scalar('Loss/mse', mse(vae, test_loader), epoch)
+    train_loss, train_kl, train_likelihood, train_mse = train(vae, train_loader, optimizer)
+    writer.add_scalar('Loss/train_loss', -train_loss, epoch)
+    writer.add_scalar('Loss/train_kl', train_kl, epoch)
+    writer.add_scalar('Loss/train_likelihood', train_likelihood, epoch)
+    writer.add_scalar('Loss/train_mse', train_mse, epoch)
 
-    print("[epoch %d]  average training loss: %.8f" % (epoch, total_epoch_loss_train))
+    test_loss, test_kl, test_likelihood, test_mse = evaluate(vae, test_loader)
+    writer.add_scalar('Loss/test_loss', -test_loss, epoch)
+    writer.add_scalar('Loss/test_kl', test_kl, epoch)
+    writer.add_scalar('Loss/test_likelihood', test_likelihood, epoch)
+    writer.add_scalar('Loss/test_mse', test_mse, epoch)
+
+    print("[epoch %d]  average training loss: %.8f" % (epoch, train_loss))
 
     if epoch % TEST_FREQUENCY == 0:
         for i in range(0, 100, 10):
-            axs[0, 0].imshow(test_loader.dataset[i][:3].permute(1, 2, 0)*0.5+0.5)
-            axs[0, 1].imshow(test_loader.dataset[i][3]*0.5+0.5)
+            axs[0, 0].imshow(test_loader.dataset[i][:3].permute(1, 2, 0))
+            axs[0, 1].imshow(test_loader.dataset[i][3])
             test_input = test_loader.dataset[i].unsqueeze(0).cuda()
             reconstructed = vae.reconstruct(test_input).cpu().detach()[0]
-            axs[1, 0].imshow(reconstructed[:3].permute(1, 2, 0)*0.5+0.5)
-            axs[1, 1].imshow(reconstructed[3]*0.5+0.5)
+            axs[1, 0].imshow(reconstructed[:3].permute(1, 2, 0))
+            axs[1, 1].imshow(reconstructed[3])
             writer.add_figure('reconstruction{}'.format(i), fig, epoch)
             plt.cla()
