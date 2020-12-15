@@ -25,4 +25,4 @@ that upsampling using nearest neighbour interpolation followed by a convolution 
 better results than transpose convolutions. The nearest neighbour interpolation layers are followed by
 3 × 3 convolution. . All but the last of these layers have batch normalization and leaky relu activations. The depths are decreased
 across 5 such layers symmetrically to the encoder. Afterwards we apply a tanh activation to map the
-predicted mean to the [−1, 1] range. Our inputs are also normalized into this range
+predicted mean to the [−1, 1] range. Our inputs are also normalized into this range.  
