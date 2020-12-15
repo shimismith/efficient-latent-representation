@@ -10,12 +10,13 @@ DATSETS USED :
 1449 processed pairs of RGB and depth images  
 
 MODELS IMPLEMENTED :  
-1. Fully Connected VAE
-2. Conditional VAE
-3. VGG blocks based VAE
+1. Fully Connected VAE -> "FullyConnected-VAE.py"
+2. Conditional VAE -> "Conditional-VAE.py"
+3. VGG blocks based VAE -> "VGGblock-VAE.py"
 
 PROPOSED VAE MODEL :  
-The encoder consists of 5 convolutional layers each with a kernel size of 4 × 4, 1 pixel of zero-padding and a
+File -> "rgbd_pvae_train.py"  
+Description : The encoder consists of 5 convolutional layers each with a kernel size of 4 × 4, 1 pixel of zero-padding and a
 stride of 2. Each layer is followed by batch normalization and a leaky relu activation with a slope
 of 0.2. The depth in each of these layers is as follows: 64, 128, 256, 512, 512. The convolutional
 layers are then followed by a fully connected layer to compute the mean and variance of the latent
