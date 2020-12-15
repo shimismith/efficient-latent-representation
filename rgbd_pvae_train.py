@@ -176,52 +176,53 @@ def mse(vae, test_loader):
     return mse
 
 
-writer = SummaryWriter(log_dir='/gruvi/usr/shimi/logs/rgbd_mat_final_200')
+if __name__ == '__main__':
+    writer = SummaryWriter(log_dir='/gruvi/usr/shimi/logs/rgbd_mat_final_200')
 
-vae = VAE(4, 400, 64, 64)
-optimizer = optim.Adam(vae.parameters(), lr=1e-4)
+    vae = VAE(4, 400, 64, 64)
+    optimizer = optim.Adam(vae.parameters(), lr=1e-4)
 
-NUM_EPOCHS = 200
-TEST_FREQUENCY = 5
-BATCH_SIZE = 50
-train_loader, test_loader = setup_data_loaders(batch_size=BATCH_SIZE, normalize=True)
+    NUM_EPOCHS = 200
+    TEST_FREQUENCY = 5
+    BATCH_SIZE = 50
+    train_loader, test_loader = setup_data_loaders(batch_size=BATCH_SIZE, normalize=True)
 
-best = float('inf')
-checkpoint = None
+    best = float('inf')
+    checkpoint = None
 
-fig, axs = plt.subplots(2, 2)
+    fig, axs = plt.subplots(2, 2)
 
-for epoch in range(1, NUM_EPOCHS+1):
-    train_loss, train_kl, train_likelihood, train_mse = train(vae, train_loader, optimizer)
-    writer.add_scalar('Loss/train_loss', -train_loss, epoch)
-    writer.add_scalar('Loss/train_kl', train_kl, epoch)
-    writer.add_scalar('Loss/train_likelihood', train_likelihood, epoch)
-    writer.add_scalar('Loss/train_mse', train_mse, epoch)
+    for epoch in range(1, NUM_EPOCHS+1):
+        train_loss, train_kl, train_likelihood, train_mse = train(vae, train_loader, optimizer)
+        writer.add_scalar('Loss/train_loss', -train_loss, epoch)
+        writer.add_scalar('Loss/train_kl', train_kl, epoch)
+        writer.add_scalar('Loss/train_likelihood', train_likelihood, epoch)
+        writer.add_scalar('Loss/train_mse', train_mse, epoch)
 
-    test_loss, test_kl, test_likelihood, test_mse = evaluate(vae, test_loader)
-    writer.add_scalar('Loss/test_loss', -test_loss, epoch)
-    writer.add_scalar('Loss/test_kl', test_kl, epoch)
-    writer.add_scalar('Loss/test_likelihood', test_likelihood, epoch)
-    writer.add_scalar('Loss/test_mse', test_mse, epoch)
+        test_loss, test_kl, test_likelihood, test_mse = evaluate(vae, test_loader)
+        writer.add_scalar('Loss/test_loss', -test_loss, epoch)
+        writer.add_scalar('Loss/test_kl', test_kl, epoch)
+        writer.add_scalar('Loss/test_likelihood', test_likelihood, epoch)
+        writer.add_scalar('Loss/test_mse', test_mse, epoch)
 
-    print("[epoch %d]  average training loss: %.8f" % (epoch, train_loss))
+        print("[epoch %d]  average training loss: %.8f" % (epoch, train_loss))
 
-    # if test_mse < best:
-    #     print('SAVING EPOCH:', epoch)
-    #     best = test_mse
-    #     checkpoint = copy.deepcopy(vae.state_dict())
+        # if test_mse < best:
+        #     print('SAVING EPOCH:', epoch)
+        #     best = test_mse
+        #     checkpoint = copy.deepcopy(vae.state_dict())
 
-    if epoch % TEST_FREQUENCY == 0:
-        for i in range(0, 100, 10):
-            axs[0, 0].imshow(test_loader.dataset[i][:3].permute(1, 2, 0)*0.5 + 0.5)
-            axs[0, 1].imshow(test_loader.dataset[i][3])
-            test_input = test_loader.dataset[i].unsqueeze(0).cuda()
-            reconstructed = vae.reconstruct(test_input).cpu().detach()[0]
-            axs[1, 0].imshow(reconstructed[:3].permute(1, 2, 0)*0.5 + 0.5)
-            axs[1, 1].imshow(reconstructed[3])
-            writer.add_figure('reconstruction{}'.format(i), fig, epoch)
-            plt.cla()
+        if epoch % TEST_FREQUENCY == 0:
+            for i in range(0, 100, 10):
+                axs[0, 0].imshow(test_loader.dataset[i][:3].permute(1, 2, 0)*0.5 + 0.5)
+                axs[0, 1].imshow(test_loader.dataset[i][3])
+                test_input = test_loader.dataset[i].unsqueeze(0).cuda()
+                reconstructed = vae.reconstruct(test_input).cpu().detach()[0]
+                axs[1, 0].imshow(reconstructed[:3].permute(1, 2, 0)*0.5 + 0.5)
+                axs[1, 1].imshow(reconstructed[3])
+                writer.add_figure('reconstruction{}'.format(i), fig, epoch)
+                plt.cla()
 
 
-checkpoint = copy.deepcopy(vae.state_dict())
-torch.save(checkpoint, 'rgbd_pvae_200.save')
+    checkpoint = copy.deepcopy(vae.state_dict())
+    torch.save(checkpoint, 'rgbd_pvae_200.save')
