@@ -31,3 +31,5 @@ across 5 such layers symmetrically to the encoder. Afterwards we apply a tanh ac
 predicted mean to the [−1, 1] range. Our inputs are also normalized into this range.
 
 The weights from our proposed model can be downloaded from https://drive.google.com/file/d/1tfG3A1Ru3uS4IbjeLY2yKJchnudm-9Id/view?usp=sharing
+
+rgbd_pvae_train.py contains the model definition. It can be imported from there and used elsewhere. The file also contains training code, once the dataset is downloaded you can set the paths to where you have it. Additionally you must set a log directory for tensorboard. All results during training are logged to tensorboard for viewing.
