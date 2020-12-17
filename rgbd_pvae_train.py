@@ -4,14 +4,14 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from torch.distributions import Normal
-from nyu_dataloader import setup_data_loaders
+
 import copy
 
 from nyu_dataloader_mat import setup_data_loaders
 # from nyu_dataloader import setup_data_loaders
 from torch.utils.tensorboard import SummaryWriter
 
-torch.cuda.set_device(0)
+#torch.cuda.set_device(0)
 
 # Input is 216*216
 class Encoder(nn.Module):
