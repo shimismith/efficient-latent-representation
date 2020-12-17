@@ -13,6 +13,7 @@ MODELS IMPLEMENTED :
 1. Fully Connected VAE -> "FullyConnected-VAE.py"
 2. Conditional VAE -> "Conditional-VAE.py"
 3. VGG blocks based VAE -> "VGGblock-VAE.py"  
+
 Link to "nyu.mat" input data file used in the models : https://drive.google.com/file/d/1Fc6PXsGBoG4e6OPTzRbX-Ao826MWS75h/view
 
 PROPOSED VAE MODEL :  
