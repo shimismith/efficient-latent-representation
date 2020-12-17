@@ -214,7 +214,7 @@ def toVAE(num_test_samples):
         except OSError as e:
             if e.errno != errno.EEXIST:
                 raise 
-    num_test_samples =-1
+    num_test_samples -=1
     for i in range(0,num_test_samples):
         gt_rgb = test_loader.dataset[i][:3].permute(1, 2, 0)*0.5 + 0.5
         gt_depth = test_loader.dataset[i][3]
@@ -231,6 +231,6 @@ def toVAE(num_test_samples):
        
 if __name__ == '__main__':
     num_test_samples = test(args)
-    num_test_samples = 11
+    #num_test_samples = 11
     
     toVAE(num_test_samples)
