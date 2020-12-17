@@ -39,17 +39,13 @@ Directory -> depth_estimation
 
 Execution:
 1. $ cd depth_estimation
-
 2. Download 'test.zip' and 'models.zip' from Google drive.
 Google Drive link: https://drive.google.com/drive/folders/1OuKPWn7w8Fbh--N03IMHAD-KWfy3P5Z_?usp=sharing
-
 3. Unzip 'test.zip' and 'models.zip' in depth_estimation folder.
-
 4. $ python depth_estimation.py arguments_test_nyu.txt
    Note: Please ensure 'rgbd_pvae_train.py' is available in the parent directory.
 
 Results:
-
 RGB-D Reconstructions from RGB images: VAE_results/
 Depth Estimations from BTS model: result_bts_nyu_v2_pytorch_densenet161/raw/
 
