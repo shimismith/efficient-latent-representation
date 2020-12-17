@@ -33,3 +33,24 @@ predicted mean to the [−1, 1] range. Our inputs are also normalized into this 
 The weights from our proposed model can be downloaded from https://drive.google.com/file/d/1tfG3A1Ru3uS4IbjeLY2yKJchnudm-9Id/view?usp=sharing
 
 rgbd_pvae_train.py contains the model definition. It can be imported from there and used elsewhere. The file also contains training code, once the dataset is downloaded you can set the paths to where you have it. Additionally you must set a log directory for tensorboard. All results during training are logged to tensorboard for viewing.
+
+DEPTH ESTIMATION FROM RGB IMAGES:
+Directory -> depth_estimation
+
+Execution:
+1. $ cd depth_estimation
+
+2. Download 'test.zip' and 'models.zip' from Google drive.
+Google Drive link: https://drive.google.com/drive/folders/1OuKPWn7w8Fbh--N03IMHAD-KWfy3P5Z_?usp=sharing
+
+3. Unzip 'test.zip' and 'models.zip' in depth_estimation folder.
+
+4. $ python depth_estimation.py arguments_test_nyu.txt
+   Note: Please ensure 'rgbd_pvae_train.py' is available in the parent directory.
+
+Results:
+
+RGB-D Reconstructions from RGB images: VAE_results/
+Depth Estimations from BTS model: result_bts_nyu_v2_pytorch_densenet161/raw/
+
+Note: For faster execution, please execute on a subset of the dataset by removing some test images from nyudepthv2_test_files_with_gt.txt 
